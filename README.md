@@ -26,3 +26,9 @@ Functional Testing: Execute the script on a test server and verify that the serv
 
 Edge Cases: Test the script with different Linux distributions, configurations, and edge cases to ensure it behaves as expected in various scenarios.
 
+
+* TO BE ADDED *
+
+NEW FUNCTIONS
+FIXES
+OPTIMIZATIONS
