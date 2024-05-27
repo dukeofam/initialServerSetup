@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Function to display colorful banners
+display_banner() {
+    local banner_text="$1"
+    local color="$2"
+    echo -e "\e[${color}m=========================================="
+    echo -e "     $banner_text"
+    echo -e "==========================================\e[0m"
+}
+
 # Function to check if the script is running as root
 check_root() {
     if [ "$EUID" -ne 0 ]; then
@@ -66,10 +75,13 @@ get_distribution() {
 
 # Function to update and upgrade the system
 update_upgrade() {
+    display_banner "UPDATE & UPGRADE" "30"
+
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
         apt update && apt upgrade -y || handle_error "Failed to update and upgrade system"
         apt install -y unattended-upgrades || handle_error "Failed to install unattended-upgrades"
         dpkg-reconfigure --priority=low unattended-upgrades || handle_error "Failed to reconfigure unattended-upgrades"
+        apt autoremove -y
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
         yum update -y && yum upgrade -y || handle_error "Failed to update and upgrade system"
         yum install -y yum-cron || handle_error "Failed to install yum-cron"
@@ -82,6 +94,8 @@ update_upgrade() {
 
 # Function to install necessary packages
 install_packages() {
+    display_banner "INSTALL PACKAGES" "34"
+
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
         apt install -y git tmux tor htop ufw fail2ban logrotate rsyslog || handle_error "Failed to install packages"
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
@@ -93,6 +107,8 @@ install_packages() {
 
 # Function to add a user and add it to the sudo group
 add_user() {
+    display_banner "ADD USER" "35"
+
     local USERNAME
     validate_input "Enter the username to create: " USERNAME '^[a-z_][a-z0-9_-]*[$]?$'
 
@@ -115,6 +131,8 @@ add_user() {
 
 # Function to set custom hostname
 set_custom_hostname() {
+    display_banner "SET HOSTNAME" "36"
+    
     read -p "Enter the new hostname: " NEW_HOSTNAME
     hostnamectl set-hostname "$NEW_HOSTNAME" || handle_error "Failed to set hostname"
     echo "Hostname set to $NEW_HOSTNAME"
@@ -122,8 +140,17 @@ set_custom_hostname() {
 
 # Function to configure SSH settings
 configure_ssh() {
-    read -p "Enter the custom SSH port: " SSH_PORT
-    validate_input "Enter the custom SSH port: " SSH_PORT '^[0-9]+$'
+    display_banner "SSH CONFIGURATION" "33"
+
+    validate_input "Enter the custom SSH port (10001-65535): " SSH_PORT '^(10001|[1-9][0-9]{4,4}|[1-5][0-9]{4,4}|6[0-4][0-9]{3,4}|65[0-4][0-9]{2,4}|655[0-3][0-9]{1,4}|6553[0-5])$'
+    
+    local SSH_PORT_VERIFY
+    validate_input "Enter the custom SSH port again for verification: " SSH_PORT_VERIFY '^(10001|[1-9][0-9]{4,4}|[1-5][0-9]{4,4}|6[0-4][0-9]{3,4}|65[0-4][0-9]{2,4}|655[0-3][0-9]{1,4}|6553[0-5])$'
+    
+    if [ "$SSH_PORT" != "$SSH_PORT_VERIFY" ]; then
+        echo "The numbers aren't the same. Please try again."
+        configure_ssh
+    fi
 
     sed -i "s/^#Port 22/Port $SSH_PORT/" /etc/ssh/sshd_config
     sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
@@ -218,12 +245,20 @@ export_keys_to_github() {
     git commit -m "Add new SSH keys for $USERNAME"
     git push origin main
 
+    # Ask if the user wants to export SSH keys to GitHub
+    read -p "Do you want to export SSH keys to GitHub? (yes/no): " EXPORT_KEYS
+    if [ "$EXPORT_KEYS" == "yes" ]; then
+        export_keys_to_github
+    fi
+
     # Clean up
     rm -rf "$LOCAL_REPO_DIR"
 }
 
 # Function to configure firewall
 configure_firewall() {
+    display_banner "FIREWALL CONFIGURATION" "32"
+
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
         # Debian/Ubuntu firewall configuration logic
         ufw default deny incoming
@@ -296,37 +331,59 @@ configure_firewall() {
     fi
 }
 
+latest_version=""
+download_url=""
+
 # Function to fetch the latest Prometheus release version from GitHub
 get_latest_prometheus_version() {
-    local latest_version=$(curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    display_banner "PROMETHEUS CONFIGURATION" "31"
+
+    latest_version=$(curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    # Remove the leading "v" if it exists
+    latest_version=${latest_version#v}
     echo "$latest_version"
 }
 
 # Function to download Prometheus
 download_prometheus() {
-    local latest_version
-    latest_version=$(get_latest_prometheus_version)
-    local download_url="https://github.com/prometheus/prometheus/releases/download/$latest_version/prometheus-$latest_version.linux-amd64.tar.gz"
-
-    # Download Prometheus
-    wget "$download_url" -P /tmp || handle_error "Failed to download Prometheus"
+    download_url="https://github.com/prometheus/prometheus/releases/download/v$latest_version/prometheus-$latest_version.linux-amd64.tar.gz"
+    echo "Downloading Prometheus version $latest_version from $download_url"
+    wget "$download_url" -P /tmp/
 }
 
 # Function to extract Prometheus
 extract_prometheus() {
     # Extract the Archive
-    tar -xzf "/tmp/prometheus-$latest_version.linux-amd64.tar.gz" -C /tmp || handle_error "Failed to extract Prometheus archive"
+    tar -xzf /tmp/prometheus-$latest_version.linux-amd64.tar.gz -C /tmp/ || handle_error "Failed to extract Prometheus archive"
 }
 
 # Function to configure Prometheus
 configure_prometheus() {
     # Move Prometheus Files
-    sudo mv "/tmp/prometheus-$latest_version.linux-amd64/prometheus" /usr/local/bin/ || handle_error "Failed to move Prometheus executable"
-    sudo mv "/tmp/prometheus-$latest_version.linux-amd64/promtool" /usr/local/bin/ || handle_error "Failed to move Prometheus tool"
+    if [ ! -f "/usr/local/bin/prometheus" ]; then
+        sudo mv "/tmp/prometheus-$latest_version.linux-amd64/prometheus" /usr/local/bin/ || handle_error "Failed to move Prometheus executable"
+    else
+        echo "Prometheus executable already exists. Skipping move."
+    fi
+
+    if [ ! -f "/usr/local/bin/promtool" ]; then
+        sudo mv "/tmp/prometheus-$latest_version.linux-amd64/promtool" /usr/local/bin/ || handle_error "Failed to move Prometheus tool"
+    else
+        echo "Prometheus tool already exists. Skipping move."
+    fi
 
     # Create a Prometheus Configuration File
-    sudo mkdir /etc/prometheus || handle_error "Failed to create Prometheus configuration directory"
-    sudo touch /etc/prometheus/prometheus.yml || handle_error "Failed to create Prometheus configuration file"
+    if [ ! -d "/etc/prometheus" ]; then
+        sudo mkdir /etc/prometheus || handle_error "Failed to create Prometheus configuration directory"
+    else
+        echo "Prometheus configuration directory already exists. Skipping creation."
+    fi
+
+    if [ ! -f "/etc/prometheus/prometheus.yml" ]; then
+        sudo touch /etc/prometheus/prometheus.yml || handle_error "Failed to create Prometheus configuration file"
+    else
+        echo "Prometheus configuration file already exists. Skipping creation."
+    fi
 
     # Add Configuration to the File
     cat << EOF | sudo tee /etc/prometheus/prometheus.yml
@@ -339,6 +396,11 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9100']
 EOF
+}
+
+# Function to add technical user Prometheus
+add_prometheus_user() {
+    useradd -m -s /bin/bash prometheus
 }
 
 # Function to start Prometheus
@@ -361,24 +423,29 @@ WantedBy=multi-user.target
 EOF
 
 # Create Necessary Directories
-sudo mkdir /var/lib/prometheus || handle_error "Failed to create Prometheus data directory"
+    if [ ! -d "/var/lib/prometheus" ]; then
+        sudo mkdir /var/lib/prometheus || handle_error "Failed to create Prometheus data directory"
+    else
+        echo "Prometheus data directory already exists. Skipping creation."
+    fi
 
-# Change Ownership of Prometheus Directory
-sudo chown -R prometheus: /etc/prometheus /var/lib/prometheus || handle_error "Failed to change ownership of Prometheus directories"
+    # Change Ownership of Prometheus Directory
+    sudo chown -R prometheus: /etc/prometheus /var/lib/prometheus || handle_error "Failed to change ownership of Prometheus directories"
 
     # Start and Enable Prometheus Service
     sudo systemctl daemon-reload || handle_error "Failed to reload systemd daemon"
     sudo systemctl start prometheus || handle_error "Failed to start Prometheus service"
     sudo systemctl enable prometheus || handle_error "Failed to enable Prometheus service"
+}
 
     echo "Prometheus installed successfully."
-}
 
 # Function to install Prometheus
 install_prometheus() {
     get_latest_prometheus_version
     download_prometheus
     extract_prometheus
+    add_prometheus_user
     configure_prometheus
     start_prometheus
 }
@@ -447,7 +514,7 @@ configure_swap() {
 
 # Main script execution
 check_root
-check_config
+read_config
 get_distribution
 update_upgrade
 install_packages
@@ -461,12 +528,6 @@ configure_logging
 configure_swap
 
 echo "Setup completed successfully."
-
-# Ask if the user wants to export SSH keys to GitHub
-read -p "Do you want to export SSH keys to GitHub? (yes/no): " EXPORT_KEYS
-if [ "$EXPORT_KEYS" == "yes" ]; then
-    export_keys_to_github
-fi
 
 # Option to reboot the server
 read -p "Setup completed successfully. Do you want to reboot the server now? (yes/no): " REBOOT_OPTION
