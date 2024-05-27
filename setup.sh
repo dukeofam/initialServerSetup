@@ -27,11 +27,11 @@ get_distribution() {
 update_upgrade() {
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
         apt update && apt upgrade -y
-        apt install unattended-upgrades -y
+        apt install -y unattended-upgrades
         dpkg-reconfigure --priority=low unattended-upgrades
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
         yum update -y && yum upgrade -y
-        yum install yum-cron -y
+        yum install -y yum-cron
         systemctl start yum-cron
         systemctl enable yum-cron
     else
@@ -43,9 +43,9 @@ update_upgrade() {
 # Function to install necessary packages
 install_packages() {
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        apt install -y git tmux tor htop
+        apt install -y git tmux tor htop ufw fail2ban logrotate rsyslog
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        yum install -y git tmux tor htop
+        yum install -y git tmux tor htop firewalld epel-release fail2ban logrotate rsyslog
     else
         echo "Unsupported Linux distribution"
         exit 1
@@ -54,13 +54,13 @@ install_packages() {
 
 # Function to add a user and add it to the sudo group
 add_user() {
-    useradd -m -s /bin/bash agent
-    if [ $? -eq 0 ]; then
-        echo "User 'agent' created successfully"
+    if id "agent" &>/dev/null; then
+        echo "User 'agent' already exists"
     else
-        echo "User 'agent' already exists or error occurred"
+        useradd -m -s /bin/bash agent
+        echo "User 'agent' created successfully"
     fi
-    
+
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
         usermod -aG sudo agent
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
@@ -79,8 +79,8 @@ configure_ssh() {
     sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 
     # Generate SSH keys for the 'agent' user
-    sudo -u agent ssh-keygen -t ed25519 -f /home/agent/.ssh/id_ed25519 -N ""
-    
+    sudo -u agent ssh-keygen -t ed25519 -f /home/agent/.ssh/id_ed25519 -N "" || { echo "SSH key generation failed"; exit 1; }
+
     # Add the public key to authorized_keys
     cat /home/agent/.ssh/id_ed25519.pub >> /home/agent/.ssh/authorized_keys
     
@@ -89,22 +89,17 @@ configure_ssh() {
     chmod 700 /home/agent/.ssh
     chmod 600 /home/agent/.ssh/authorized_keys
 
-    # Export keys to GitHub private repository
-    export_keys_to_github
-
     systemctl restart sshd
 }
 
 # Function to configure firewall
 configure_firewall() {
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        apt install ufw -y
         ufw allow 24682/tcp
         ufw allow 80/tcp
         ufw allow 443/tcp
-        ufw enable
+        ufw --force enable
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        yum install firewalld -y
         systemctl start firewalld
         systemctl enable firewalld
         firewall-cmd --permanent --add-port=24682/tcp
@@ -119,33 +114,14 @@ configure_firewall() {
 
 # Function to install Fail2Ban
 install_fail2ban() {
-    if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        apt install fail2ban -y
-    elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        yum install epel-release -y
-        yum install fail2ban -y
-        systemctl start fail2ban
-        systemctl enable fail2ban
-    else
-        echo "Unsupported Linux distribution"
-        exit 1
-    fi
+    systemctl start fail2ban
+    systemctl enable fail2ban
 }
 
 # Function to configure system logging
 configure_logging() {
-    if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        apt install logrotate rsyslog -y
-        systemctl enable rsyslog
-        systemctl start rsyslog
-    elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        yum install logrotate rsyslog -y
-        systemctl enable rsyslog
-        systemctl start rsyslog
-    else
-        echo "Unsupported Linux distribution"
-        exit 1
-    fi
+    systemctl enable rsyslog
+    systemctl start rsyslog
 }
 
 # Function to configure swap space
@@ -159,6 +135,12 @@ configure_swap() {
 
 # Function to export SSH keys to GitHub private repository
 export_keys_to_github() {
+    # Ensure the agent's public/private key exists
+    if [ ! -f /home/agent/.ssh/id_ed25519 ]; then
+        echo "SSH keys for user 'agent' not found."
+        return 1
+    fi
+
     # Set your GitHub repository details here
     GITHUB_REPO_URL="https://github.com/dukeofam/ServerSetup.git"
     LOCAL_REPO_DIR="/tmp/ssh-keys-backup"
