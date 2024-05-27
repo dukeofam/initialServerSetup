@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Function to check if the script is running as root
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Please run as root"
+        exit 1
+    fi
+}
+
 # Log file location
 LOGFILE="/var/log/server_setup.log"
 
@@ -10,11 +18,14 @@ exec 2>&1
 # Configuration file
 CONFIG_FILE="config.conf"
 
-# Function to check if the script is running as root
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "Please run as root"
-        exit 1
+# Function to read configuration settings from the file
+read_config() {
+    # Check if the config file exists
+    if [ -f "$CONFIG_FILE" ]; then
+        # Read configuration settings from the file
+        source "$CONFIG_FILE"
+    else
+        echo "No config file found. Skipping configuration."
     fi
 }
 
@@ -380,8 +391,48 @@ configure_logging() {
 
 # Function to configure fail2ban
 configure_fail2ban() {
-    systemctl enable fail2ban
-    systemctl start fail2ban
+    # Configure fail2ban to only allow CZ IPs
+    cat << EOF | sudo tee /etc/fail2ban/jail.local
+[DEFAULT]
+ignoreip = 127.0.0.1/8
+bantime  = 3600
+findtime = 600
+maxretry = 3
+
+[sshd]
+enabled = true
+port = $SSH_PORT
+banaction = iptables-multiport
+banipregex = ^<HOST>$
+EOF
+
+    # Create a new jail file to specify CZ IPs
+    cat << EOF | sudo tee /etc/fail2ban/action.d/iptables-geoip.conf
+[Definition]
+actionstart = <iptables> -N fail2ban-<name>
+              <iptables> -A fail2ban-<name> -j RETURN
+              <iptables> -I <chain> -p <protocol> -j fail2ban-<name>
+actionstop = <iptables> -D <chain> -p <protocol> -j fail2ban-<name>
+actioncheck = <iptables> -n -L <chain> | grep -q 'fail2ban-<name>[ \t]'
+actionban = <iptables> -I fail2ban-<name> 1 -s <ip> -j DROP
+actionunban = <iptables> -D fail2ban-<name> -s <ip> -j DROP
+actionflush = <iptables> -F fail2ban-<name>
+EOF
+
+    # Download CZ IP ranges
+    curl -sSL https://www.ipdeny.com/ipblocks/data/countries/cz.zone -o /etc/fail2ban/cz.zone || handle_error "Failed to download CZ IP ranges"
+
+    # Create a new fail2ban jail to block IPs not from CZ
+    cat << EOF | sudo tee /etc/fail2ban/jail.d/cz.conf
+[cz]
+enabled = true
+filter = <filter>
+action = iptables-geoip[name=czech, protocol=all]
+logpath = /var/log/auth.log
+EOF
+
+    # Restart fail2ban
+    systemctl restart fail2ban || handle_error "Failed to restart fail2ban"
 }
 
 # Function to configure swap space
@@ -396,6 +447,7 @@ configure_swap() {
 
 # Main script execution
 check_root
+check_config
 get_distribution
 update_upgrade
 install_packages
