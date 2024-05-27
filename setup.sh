@@ -218,7 +218,6 @@ configure_firewall() {
         ufw default deny incoming
         ufw default allow outgoing
 
-        read -p "Enter the custom SSH port: " SSH_PORT
         read -p "Enter IP address to allow access for SSH port $SSH_PORT (or leave empty to allow from all IPs): " SSH_IP
         if [ -n "$SSH_IP" ]; then
             ufw allow from "$SSH_IP" to any port "$SSH_PORT"/tcp
@@ -292,14 +291,6 @@ get_latest_prometheus_version() {
     echo "$latest_version"
 }
 
-# Function to install Prometheus
-install_prometheus() {
-    download_prometheus
-    extract_prometheus
-    configure_prometheus
-    start_prometheus
-}
-
 # Function to download Prometheus
 download_prometheus() {
     local latest_version
@@ -358,11 +349,11 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-    # Create Necessary Directories
-    sudo mkdir /var/lib/prometheus || handle_error "Failed to create Prometheus data directory"
+# Create Necessary Directories
+sudo mkdir /var/lib/prometheus || handle_error "Failed to create Prometheus data directory"
 
-    # Change Ownership of Prometheus Directory
-    sudo chown -R prometheus: /etc/prometheus /var/lib/prometheus || handle_error "Failed to change ownership of Prometheus directories"
+# Change Ownership of Prometheus Directory
+sudo chown -R prometheus: /etc/prometheus /var/lib/prometheus || handle_error "Failed to change ownership of Prometheus directories"
 
     # Start and Enable Prometheus Service
     sudo systemctl daemon-reload || handle_error "Failed to reload systemd daemon"
@@ -372,10 +363,25 @@ EOF
     echo "Prometheus installed successfully."
 }
 
+# Function to install Prometheus
+install_prometheus() {
+    get_latest_prometheus_version
+    download_prometheus
+    extract_prometheus
+    configure_prometheus
+    start_prometheus
+}
+
 # Function to configure system logging
 configure_logging() {
     systemctl enable rsyslog
     systemctl start rsyslog
+}
+
+# Function to configure fail2ban
+configure_fail2ban() {
+    systemctl enable fail2ban
+    systemctl start fail2ban
 }
 
 # Function to configure swap space
@@ -398,7 +404,7 @@ set_custom_hostname
 configure_ssh
 install_prometheus
 configure_firewall
-install_fail2ban
+configure_fail2ban
 configure_logging
 configure_swap
 
