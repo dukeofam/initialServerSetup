@@ -173,14 +173,14 @@ add_user() {
 
 # Function to set custom hostname
 set_custom_hostname() {
-    display_banner "SET HOSTNAME" "33"
+    display_banner "SET HOSTNAME" "34"
     
-    read -p "Enter the new hostname (leave blank for default): " NEW_HOSTNAME
+    read -p $'\e[1;33m'"Enter the new hostname (leave blank for default): "$'\e[0m' NEW_HOSTNAME
     if [ -n "$NEW_HOSTNAME" ]; then
         hostnamectl set-hostname "$NEW_HOSTNAME" || handle_error "Failed to set hostname"
-        echo -e "\e[32mHostname set to $NEW_HOSTNAME\e[0m"
+        echo -e "\e[1;32mHostname set to $NEW_HOSTNAME\e[0m"
     else
-        echo -e "\e[33mNo change made to hostname\e[0m"
+        echo -e "\e[1;33mNo change made to hostname\e[0m"
     fi
 }
 
@@ -192,7 +192,8 @@ configure_ssh() {
     local SSH_PORT_MIN=10001
     local SSH_PORT_MAX=65535
     while true; do
-        read -p "Enter the custom SSH port ($SSH_PORT_MIN-$SSH_PORT_MAX): " SSH_PORT
+        read -p $'\e[1;34m'"Enter the custom SSH port ($SSH_PORT_MIN-$SSH_PORT_MAX): "$'\e[0m' SSH_PORT
+
         if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]]; then
             echo -e "\e[31mInvalid input. Please enter a valid number.\e[0m"
             continue
@@ -275,7 +276,7 @@ chmod 600 "/home/$USERNAME/.ssh/authorized_keys"
 
 # Restart SSH service for changes to take effect
 if systemctl restart sshd; then
-    echo "The keys have been generated and moved to the 'authorized_keys' folder. The SSH server has been restarted."
+    echo -e "\e[32mThe keys have been generated and moved to the 'authorized_keys' folder. The SSH server has been restarted.\e[0m"
 else
     handle_error "Failed to restart SSH service"
 fi
@@ -320,122 +321,110 @@ export_keys_to_github() {
     rm -rf "$LOCAL_REPO_DIR" || handle_error "$(tput setaf 1)Failed to remove temporary directory$(tput sgr0)"
 }
 
+# Helper function to validate and add a port rule
+add_port_rule() {
+    local distro=$1
+    local action=$2
+    local ip_address=$3
+    local port=$4
+
+    case $distro in
+        debian|ubuntu)
+            if [ -n "$ip_address" ]; then
+                ufw $action from "$ip_address" to any port "$port"
+            else
+                ufw $action "$port"
+            fi
+            ;;
+        centos|rhel)
+            if [ -n "$ip_address" ]; then
+                firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='$ip_address' $action port port='$port' protocol='tcp'"
+            else
+                firewall-cmd --permanent --$action-port="$port"/tcp
+            fi
+            ;;
+        *)
+            echo "Unsupported Linux distribution"
+            exit 1
+            ;;
+    esac
+}
+
 # Function to configure firewall
 configure_firewall() {
     display_banner "FIREWALL CONFIGURATION" "31"
+    echo "$(tput setaf 3)Please enter any ports you'd like to open through the firewall. Press Enter without input to finish.$(tput sgr0)"
 
-    # Validate SSH port within the specified range
+    # Validate port within the specified range
     local PORT_MIN=1
     local PORT_MAX=65535
+
     while true; do
-        read -p "$(tput setaf 3)Enter the custom port for firewall rules ($PORT_MIN-$PORT_MAX): $(tput sgr0)" PORT
-        if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+        read -p "$(tput setaf 3)Enter the custom port for firewall rules ($PORT_MIN-$PORT_MAX): $(tput sgr0)" port
+        # Check if the input is empty (user pressed Enter without input)
+        if [[ -z "$port" ]]; then
+            break
+        fi
+
+        if ! [[ "$port" =~ ^[0-9]+$ ]]; then
             echo "$(tput setaf 1)Invalid input. Please enter a valid number.$(tput sgr0)"
             continue
         fi
-        if (( PORT < PORT_MIN || PORT > PORT_MAX )); then
+
+        if (( port < PORT_MIN || port > PORT_MAX )); then
             echo "$(tput setaf 1)Invalid port. Please enter a port within the range $PORT_MIN-$PORT_MAX.$(tput sgr0)"
-        else
-            break
+            continue
         fi
+
+        # Validate IP address format and range
+        read -p "$(tput setaf 3)Enter IP address to allow access for port $port (format: x.x.x.x, each octet between 0-255, leave empty to allow all IPs): $(tput sgr0)" ip_address
+        if [[ -z "$ip_address" ]]; then
+            # If IP address is empty, allow all IPs
+            ip_address="0.0.0.0/0"
+        else
+            while true; do
+                if [[ "$ip_address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                    valid_ip=true
+                    for octet in $(echo "$ip_address" | tr '.' ' '); do
+                        if (( octet < 0 || octet > 255 )); then
+                            valid_ip=false
+                            break
+                        fi
+                    done
+                    if $valid_ip; then
+                        break
+                    else
+                        echo "$(tput setaf 1)Invalid IP address format or range. Each octet should be between 0 and 255.$(tput sgr0)"
+                    fi
+                else
+                    echo "$(tput setaf 1)Invalid IP address format. Please enter a valid IPv4 address.$(tput sgr0)"
+                fi
+                read -p "$(tput setaf 3)Enter IP address to allow access for port $port (format: x.x.x.x, each octet between 0-255, leave empty to allow all IPs): $(tput sgr0)" ip_address
+            done
+        fi
+
+        # Add the port rule
+        add_port_rule $DISTRO allow "$ip_address" $port
     done
 
-    # Validate IP address format and range
-    read -p "$(tput setaf 3)Enter IP address to allow access for port $PORT (format: x.x.x.x, each part between 0-255, leave empty to allow all IPs): $(tput sgr0)" IP_ADDRESS
-    if [[ -z "$IP_ADDRESS" ]]; then
-        # If IP address is empty, allow all IPs
-        IP_ADDRESS="0.0.0.0/0"
-    else
-        while true; do
-            if [[ "$IP_ADDRESS" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-                valid_ip=true
-                for octet in $(echo "$IP_ADDRESS" | tr '.' ' '); do
-                    if (( octet < 0 || octet > 255 )); then
-                        valid_ip=false
-                        break
-                    fi
-                done
-                if $valid_ip; then
-                    break
-                else
-                    echo "$(tput setaf 1)Invalid IP address format or range. Each octet should be between 0 and 255.$(tput sgr0)"
-                fi
-            else
-                echo "$(tput setaf 1)Invalid IP address format. Please enter a valid IPv4 address.$(tput sgr0)"
-            fi
-        done
-    fi
-
-    if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        # Debian/Ubuntu firewall configuration logic
-        ufw default deny incoming
-        ufw default allow outgoing
-
-        read -p "$(tput setaf 3)Enter IP address to allow access for SSH port $SSH_PORT (or leave empty to allow from all IPs): $(tput sgr0)" SSH_IP
-        if [ -n "$SSH_IP" ]; then
-            ufw allow from "$SSH_IP" to any port "$SSH_PORT"/tcp
-        else
-            ufw allow "$SSH_PORT"/tcp
-        fi
-
-        declare -A FIREWALL_PORTS
-
-        while true; do
-            read -p "$(tput setaf 4)Enter a port to configure (or 'done' to finish): $(tput sgr0)" PORT
-            [[ $PORT == "done" ]] && break
-            read -p "$(tput setaf 4)Enter IP address to allow access for port $PORT (or leave empty to allow from all IPs): $(tput sgr0)" IP_ADDRESS
-            if [ -n "$IP_ADDRESS" ]; then
-                read -p "$(tput setaf 4)Do you want to allow or deny access for port $PORT from IP $IP_ADDRESS? (allow/deny): $(tput sgr0)" ACTION
-                FIREWALL_PORTS[$PORT]=$ACTION
-            fi
-        done
-
-        for PORT in "${!FIREWALL_PORTS[@]}"; do
-            ufw "${FIREWALL_PORTS[$PORT]}" from "$IP_ADDRESS" to any port "$PORT"/tcp
-        done
-
-        ufw --force enable
-    elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        systemctl start firewalld
-        systemctl enable firewalld
-
-        firewall-cmd --set-default-zone=drop
-        firewall-cmd --permanent --zone=drop --add-interface=eth0
-
-        read -p "$(tput setaf 3)Enter the custom SSH port: $(tput sgr0)" SSH_PORT
-        read -p "$(tput setaf 3)Enter IP address to allow access for SSH port $SSH_PORT (or leave empty to allow from all IPs): $(tput sgr0)" SSH_IP
-        if [ -n "$SSH_IP" ]; then
-            firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address='"$SSH_IP"' accept' --destination-port="$SSH_PORT"/tcp
-        else
-            firewall-cmd --permanent --add-port="$SSH_PORT"/tcp
-        fi
-
-        declare -A FIREWALL_PORTS
-
-        while true; do
-            read -p "$(tput setaf 4)Enter a port to configure (or 'done' to finish): $(tput sgr0)" PORT
-            [[ $PORT == "done" ]] && break
-            read -p "$(tput setaf 4)Enter IP address to allow access for port $PORT (or leave empty to allow from all IPs): $(tput sgr0)" IP_ADDRESS
-            if [ -n "$IP_ADDRESS" ]; then
-                read -p "$(tput setaf 4)Do you want to allow or deny access for port $PORT from IP $IP_ADDRESS? (allow/deny): $(tput sgr0)" ACTION
-                FIREWALL_PORTS[$PORT]=$ACTION
-            fi
-        done
-
-        for PORT in "${!FIREWALL_PORTS[@]}"; do
-            firewall-cmd --permanent --"${FIREWALL_PORTS[$PORT]}"-port="$PORT"/tcp
-        done
-
-        read -p "$(tput setaf 3)Enter IP address to allow access (or leave empty to allow from all IPs): $(tput sgr0)" ALLOWED_IP
-        if [ -n "$ALLOWED_IP" ]; then
-            firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address='"$ALLOWED_IP"' accept'
-        fi
-
-        firewall-cmd --reload
-    else
-        echo "$(tput setaf 1)Unsupported Linux distribution$(tput sgr0)"
-        exit 1
-    fi
+    case $DISTRO in
+        debian|ubuntu)
+            ufw default deny incoming
+            ufw default allow outgoing
+            ufw --force enable
+            ;;
+        centos|rhel)
+            systemctl start firewalld
+            systemctl enable firewalld
+            firewall-cmd --set-default-zone=drop
+            firewall-cmd --permanent --zone=drop --add-interface=eth0
+            firewall-cmd --reload
+            ;;
+        *)
+            echo "Unsupported Linux distribution"
+            exit 1
+            ;;
+    esac
 }
 
 latest_version=""
@@ -448,48 +437,48 @@ get_latest_prometheus_version() {
     latest_version=$(curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     # Remove the leading "v" if it exists
     latest_version=${latest_version#v}
-    echo "$(tput setaf 6)$latest_version$(tput sgr0)"
 }
 
 # Function to download Prometheus
 download_prometheus() {
-    download_url="https://github.com/prometheus/prometheus/releases/download/v$(tput setaf 6)$latest_version$(tput sgr0)/prometheus-$(tput setaf 6)$latest_version$(tput sgr0).linux-amd64.tar.gz"
-    echo "Downloading Prometheus version $(tput setaf 6)$latest_version$(tput sgr0) from $(tput setaf 4)$download_url$(tput sgr0)"
+    download_url="https://github.com/prometheus/prometheus/releases/download/v$latest_version/prometheus-$latest_version.linux-amd64.tar.gz"
+    echo "Downloading Prometheus version $latest_version from $download_url"
     wget "$download_url" -P /tmp/
 }
 
 # Function to extract Prometheus
 extract_prometheus() {
     # Extract the Archive
-    tar -xzf /tmp/prometheus-$(tput setaf 6)$latest_version$(tput sgr0).linux-amd64.tar.gz -C /tmp/ || handle_error "$(tput setaf 1)Failed to extract Prometheus archive$(tput sgr0)"
+   tar -xzf /tmp/prometheus-$latest_version.linux-amd64.tar.gz -C /tmp/ || handle_error "Failed to extract Prometheus archive"
+
 }
 
 # Function to configure Prometheus
 configure_prometheus() {
     # Move Prometheus Files
     if [ ! -f "/usr/local/bin/prometheus" ]; then
-        sudo mv "/tmp/prometheus-$(tput setaf 6)$latest_version$(tput sgr0).linux-amd64/prometheus" /usr/local/bin/ || handle_error "$(tput setaf 1)Failed to move Prometheus executable$(tput sgr0)"
+        sudo mv "/tmp/prometheus-$latest_version.linux-amd64/prometheus" /usr/local/bin/ || handle_error "Failed to move Prometheus executable"
     else
-        echo "Prometheus executable already exists. $(tput setaf 2)Skipping move.$(tput sgr0)"
+        echo "Prometheus executable already exists. Skipping move."
     fi
 
     if [ ! -f "/usr/local/bin/promtool" ]; then
-        sudo mv "/tmp/prometheus-$(tput setaf 6)$latest_version$(tput sgr0).linux-amd64/promtool" /usr/local/bin/ || handle_error "$(tput setaf 1)Failed to move Prometheus tool$(tput sgr0)"
+        sudo mv "/tmp/prometheus-$latest_version.linux-amd64/promtool" /usr/local/bin/ || handle_error "Failed to move Prometheus tool"
     else
-        echo "Prometheus tool already exists. $(tput setaf 2)Skipping move.$(tput sgr0)"
+        echo "Prometheus tool already exists. Skipping move."
     fi
 
     # Create a Prometheus Configuration File
     if [ ! -d "/etc/prometheus" ]; then
-        sudo mkdir /etc/prometheus || handle_error "$(tput setaf 1)Failed to create Prometheus configuration directory$(tput sgr0)"
+        sudo mkdir /etc/prometheus || handle_error "Failed to create Prometheus configuration directory"
     else
-        echo "Prometheus configuration directory already exists. $(tput setaf 2)Skipping creation.$(tput sgr0)"
+        echo "Prometheus configuration directory already exists. Skipping creation."
     fi
 
     if [ ! -f "/etc/prometheus/prometheus.yml" ]; then
-        sudo touch /etc/prometheus/prometheus.yml || handle_error "$(tput setaf 1)Failed to create Prometheus configuration file$(tput sgr0)"
+        sudo touch /etc/prometheus/prometheus.yml || handle_error "Failed to create Prometheus configuration file"
     else
-        echo "Prometheus configuration file already exists. $(tput setaf 2)Skipping creation.$(tput sgr0)"
+        echo "Prometheus configuration file already exists. Skipping creation."
     fi
 
     # Add Configuration to the File
@@ -543,9 +532,9 @@ EOF
     sudo systemctl daemon-reload && echo "$(tput setaf 2)Reloaded systemd daemon.$(tput sgr0)" || handle_error "Failed to reload systemd daemon"
     sudo systemctl start prometheus && echo "$(tput setaf 2)Prometheus service started successfully.$(tput sgr0)" || handle_error "Failed to start Prometheus service"
     sudo systemctl enable prometheus && echo "$(tput setaf 2)Prometheus service enabled successfully.$(tput sgr0)" || handle_error "Failed to enable Prometheus service"
-}
 
 echo "$(tput setaf 2)Prometheus installed successfully.$(tput sgr0)"
+}
 
 # Function to install Prometheus
 install_prometheus() {
@@ -559,12 +548,14 @@ install_prometheus() {
 
 # Function to configure system logging
 configure_logging() {
+    display_banner "CONFIGURING LOGGING" "33"
     systemctl enable rsyslog && echo "$(tput setaf 2)rsyslog enabled successfully.$(tput sgr0)"
     systemctl start rsyslog && echo "$(tput setaf 2)rsyslog started successfully.$(tput sgr0)"
 }
 
 # Function to configure fail2ban
 configure_fail2ban() {
+    display_banner "CONFIGURING FAIL2BAN" "33"
     # Configure fail2ban to only allow CZ IPs
     cat << EOF | sudo tee /etc/fail2ban/jail.local
 [DEFAULT]
@@ -631,7 +622,7 @@ root_password
 add_user
 set_custom_hostname
 configure_ssh
-#export_keys_to_github
+export_keys_to_github
 install_prometheus
 configure_firewall
 configure_fail2ban
