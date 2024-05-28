@@ -1,6 +1,6 @@
 # Bash Server Setup Script
 
-This script automates the setup process for a Linux server, including system updates, package installations, user management, firewall configuration, and more.
+This script automates the setup process for a Linux (Debian/Ubuntu/CentOS) server, including system updates, package installations, user management, firewall configuration, and more. If you find any bugs or have an idea to make it better, feel free to propose it/merge request. :)
 
 ## Prerequisites
 
