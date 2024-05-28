@@ -11,6 +11,7 @@ display_banner() {
 
 # Function to check if the script is running as root
 check_root() {
+    display_banner "CHECKING FOR ROOT" "33"
     if [ "$EUID" -ne 0 ]; then
         echo "Please run as root"
         exit 1
@@ -105,11 +106,13 @@ install_packages() {
     fi
 }
 
+USERNAME=""
+SSH_KEY_FILE=""
+
 # Function to add a user and add it to the sudo group
 add_user() {
     display_banner "ADD USER" "35"
 
-    local USERNAME
     validate_input "Enter the username to create: " USERNAME '^[a-z_][a-z0-9_-]*[$]?$'
 
     if id "$USERNAME" &>/dev/null; then
@@ -156,6 +159,7 @@ configure_ssh() {
     sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
 
     # SSH key generation
+    display_banner "SSH KEY GENERATION" "34"
     echo "Choose the SSH encryption algorithm:"
     echo "1) RSA (4096 bits)"
     echo "2) ECDSA (521 bits)"
@@ -182,7 +186,7 @@ configure_ssh() {
             ;;
     esac
 
-    local SSH_KEY_FILE="/home/$USERNAME/.ssh/id_$SSH_ALGO"
+    SSH_KEY_FILE="/home/$USERNAME/.ssh/id_$SSH_ALGO"
 
     # Check if the user wants to set a passphrase
     local SSH_PASSPHRASE
@@ -222,7 +226,10 @@ configure_ssh() {
 
 # Function to export SSH keys to GitHub private repository
 export_keys_to_github() {
+    display_banner "EXPORT KEYS TO GITHUB" "29"
     read -p "Enter your GitHub repository URL: " GITHUB_REPO_URL
+    read -p "Enter your GitHub API key: " -s GITHUB_API_KEY
+    echo
     read -p "Enter the local directory to clone the repository [/tmp/ssh-keys-backup]: " LOCAL_REPO_DIR
     LOCAL_REPO_DIR=${LOCAL_REPO_DIR:-/tmp/ssh-keys-backup}
 
@@ -232,27 +239,28 @@ export_keys_to_github() {
         return 1
     fi
 
+    # Extract username and repository path from the GitHub URL
+    GITHUB_URL_NO_PROTOCOL=$(echo "$GITHUB_REPO_URL" | sed -e 's/^https:\/\///')
+    GITHUB_USER_REPO=$(echo "$GITHUB_URL_NO_PROTOCOL" | sed -e 's/^.*@//')
+
+    # Construct the authenticated URL
+    AUTHENTICATED_URL="https://${GITHUB_API_KEY}@${GITHUB_USER_REPO}"
+
     # Clone the repository
-    git clone "$GITHUB_REPO_URL" "$LOCAL_REPO_DIR"
+    git clone "$AUTHENTICATED_URL" "$LOCAL_REPO_DIR" || handle_error "Failed to clone GitHub repository"
 
     # Copy SSH keys to the repository directory
-    cp "$SSH_KEY_FILE" "$LOCAL_REPO_DIR/"
-    cp "$SSH_KEY_FILE.pub" "$LOCAL_REPO_DIR/"
+    cp "$SSH_KEY_FILE" "$LOCAL_REPO_DIR/" || handle_error "Failed to copy SSH private key"
+    cp "$SSH_KEY_FILE.pub" "$LOCAL_REPO_DIR/" || handle_error "Failed to copy SSH public key"
 
     # Commit and push the changes
-    cd "$LOCAL_REPO_DIR"
+    cd "$LOCAL_REPO_DIR" || handle_error "Failed to change directory to $LOCAL_REPO_DIR"
     git add id_$SSH_ALGO id_$SSH_ALGO.pub
-    git commit -m "Add new SSH keys for $USERNAME"
-    git push origin main
-
-    # Ask if the user wants to export SSH keys to GitHub
-    read -p "Do you want to export SSH keys to GitHub? (yes/no): " EXPORT_KEYS
-    if [ "$EXPORT_KEYS" == "yes" ]; then
-        export_keys_to_github
-    fi
+    git commit -m "Add new SSH keys for $USERNAME" || handle_error "Failed to commit changes"
+    git push origin main || handle_error "Failed to push changes to GitHub"
 
     # Clean up
-    rm -rf "$LOCAL_REPO_DIR"
+    rm -rf "$LOCAL_REPO_DIR" || handle_error "Failed to remove temporary directory"
 }
 
 # Function to configure firewall
@@ -521,6 +529,7 @@ install_packages
 add_user
 set_custom_hostname
 configure_ssh
+export_keys_to_github
 install_prometheus
 configure_firewall
 configure_fail2ban
@@ -530,6 +539,7 @@ configure_swap
 echo "Setup completed successfully."
 
 # Option to reboot the server
+display_banner "SERVER REBOOT" "30"
 read -p "Setup completed successfully. Do you want to reboot the server now? (yes/no): " REBOOT_OPTION
 if [ "$REBOOT_OPTION" == "yes" ]; then
     echo "Rebooting the server..."
