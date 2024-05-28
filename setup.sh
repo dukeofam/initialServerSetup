@@ -285,10 +285,10 @@ fi
 # Function to export SSH keys to GitHub private repository
 export_keys_to_github() {
     display_banner "EXPORT KEYS TO GITHUB" "29"
-    read -p "$(tput setaf 3)Enter your GitHub repository URL: $(tput sgr0)" GITHUB_REPO_URL
+    read -p "$(tput setaf 3)Enter your private GitHub repository URL: $(tput sgr0)" GITHUB_REPO_URL
     read -p "$(tput setaf 3)Enter your GitHub API key: $(tput sgr0)" -s GITHUB_API_KEY
     echo
-    read -p "$(tput setaf 3)Enter the local directory to clone the repository [/tmp/ssh-keys-backup]: $(tput sgr0)" LOCAL_REPO_DIR
+    read -p "$(tput setaf 3)Enter the temporary local directory to clone the repository [/tmp/ssh-keys-backup]: $(tput sgr0)" LOCAL_REPO_DIR
     LOCAL_REPO_DIR=${LOCAL_REPO_DIR:-/tmp/ssh-keys-backup}
 
     # Ensure the user's public/private key exists
@@ -306,19 +306,23 @@ export_keys_to_github() {
 
     # Clone the repository
     git clone "$AUTHENTICATED_URL" "$LOCAL_REPO_DIR" || handle_error "$(tput setaf 1)Failed to clone GitHub repository$(tput sgr0)"
+    echo "$(tput setaf 2)Cloned GitHub repository successfully.$(tput sgr0)"
 
     # Copy SSH keys to the repository directory
     cp "$SSH_KEY_FILE" "$LOCAL_REPO_DIR/" || handle_error "$(tput setaf 1)Failed to copy SSH private key$(tput sgr0)"
     cp "$SSH_KEY_FILE.pub" "$LOCAL_REPO_DIR/" || handle_error "$(tput setaf 1)Failed to copy SSH public key$(tput sgr0)"
+    echo "$(tput setaf 2)Copied SSH keys to the repository directory.$(tput sgr0)"
 
     # Commit and push the changes
     cd "$LOCAL_REPO_DIR" || handle_error "$(tput setaf 1)Failed to change directory to $LOCAL_REPO_DIR$(tput sgr0)"
     git add id_$SSH_ALGO id_$SSH_ALGO.pub
     git commit -m "Add new SSH keys for $USERNAME" || handle_error "$(tput setaf 1)Failed to commit changes$(tput sgr0)"
     git push origin main || handle_error "$(tput setaf 1)Failed to push changes to GitHub$(tput sgr0)"
+    echo "$(tput setaf 2)Committed and pushed the changes to GitHub successfully.$(tput sgr0)"
 
     # Clean up
     rm -rf "$LOCAL_REPO_DIR" || handle_error "$(tput setaf 1)Failed to remove temporary directory$(tput sgr0)"
+    echo "$(tput setaf 2)Cleaned up temporary directory.$(tput sgr0)"
 }
 
 # Helper function to validate and add a port rule
