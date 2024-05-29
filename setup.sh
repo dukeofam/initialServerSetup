@@ -368,7 +368,7 @@ add_port_rule() {
 # Function to configure firewall
 configure_firewall() {
     display_banner "FIREWALL CONFIGURATION" "31"
-    echo "$(tput setaf 3)Please enter any ports you'd like to open through the firewall. Press Enter without input to finish.$(tput sgr0)"
+    echo "$(tput setaf 3)Enter any ports you'd like to open through the firewall. Make sure to whitelist at least the SSH port ($SSH_PORT). Press Enter without input to finish.$(tput sgr0)"
 
     # Validate port within the specified range
     local PORT_MIN=1
