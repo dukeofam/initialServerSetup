@@ -138,9 +138,9 @@ install_packages() {
     display_banner "INSTALL PACKAGES" "34"
 
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        apt install -y tmux tor htop ufw fail2ban logrotate rsyslog certbot nginx && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
+        apt install -y tmux tor htop jq ufw fail2ban logrotate rsyslog certbot nginx && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        yum install -y tmux tor htop firewalld epel-release fail2ban logrotate rsyslog certbot nginx && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
+        yum install -y tmux tor htop jq firewalld epel-release fail2ban logrotate rsyslog certbot nginx && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
     else
         handle_error "Unsupported Linux distribution"
     fi
@@ -469,21 +469,76 @@ get_latest_exporter_version() {
     fi
 }
 
+# Function to determine the system architecture and set the appropriate download URL
+set_download_url() {
+    architecture=$(uname -m)
+    os=$(uname -s)
+    
+    case $os in
+        Darwin)
+            case $architecture in
+                x86_64)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.darwin-amd64.tar.gz"
+                    ;;
+                arm64)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.darwin-arm64.tar.gz"
+                    ;;
+                *)
+                    handle_error "Unsupported architecture for macOS: $architecture"
+                    ;;
+            esac
+            ;;
+        Linux)
+            case $architecture in
+                x86_64)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-amd64.tar.gz"
+                    ;;
+                i386)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-386.tar.gz"
+                    ;;
+                armv5*)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-armv5.tar.gz"
+                    ;;
+                armv6*)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-armv6.tar.gz"
+                    ;;
+                armv7*)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-armv7.tar.gz"
+                    ;;
+                aarch64)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-arm64.tar.gz"
+                    ;;
+                mips)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-mips.tar.gz"
+                    ;;
+                mips64)
+                    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-mips64.tar.gz"
+                    ;;
+                *)
+                    handle_error "Unsupported architecture for Linux: $architecture"
+                    ;;
+            esac
+            ;;
+        *)
+            handle_error "Unsupported operating system: $os"
+            ;;
+    esac
+    echo "Downloading node exporter version $latest_version for $architecture from $download_url"
+}
+
 # Function to download Prometheus node exporter
 download_prometheus() {
-    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-amd64.tar.gz"
-    echo "Downloading node exporter version $latest_version from $download_url"
     wget "$download_url" -P /tmp/ || handle_error "Failed to download node_exporter"
 }
 
 # Function to extract Prometheus node exporter
 extract_prometheus() {
-    tar -xzf /tmp/node_exporter-$latest_version.linux-amd64.tar.gz -C /tmp/ || handle_error "Failed to extract node_exporter archive"
+    tar -xzf /tmp/node_exporter-*.tar.gz -C /tmp/ || handle_error "Failed to extract node_exporter archive"
 }
 
 # Function to start node exporter
 start_node_exporter() {
-    cd /tmp/node_exporter-$latest_version.linux-amd64 || handle_error "Failed to change directory to extracted node_exporter"
+    cd /tmp/node_exporter-* || handle_error "Failed to change directory to extracted node_exporter"
     ./node_exporter &
     if [ $? -eq 0 ]; then
         echo "node_exporter started successfully"
@@ -495,6 +550,7 @@ start_node_exporter() {
 # Main function to execute all steps
 install_exporter() {
     get_latest_exporter_version
+    set_download_url
     download_prometheus
     extract_prometheus
     start_node_exporter
