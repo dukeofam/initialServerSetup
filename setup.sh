@@ -536,15 +536,32 @@ extract_prometheus() {
     tar -xzf /tmp/node_exporter-*.tar.gz -C /tmp/ || handle_error "Failed to extract node_exporter archive"
 }
 
-# Function to start node exporter
-start_node_exporter() {
-    cd /tmp/node_exporter-* || handle_error "Failed to change directory to extracted node_exporter"
-    ./node_exporter &
-    if [ $? -eq 0 ]; then
-        echo "node_exporter started successfully"
-    else
-        handle_error "Failed to start node_exporter"
-    fi
+# Function to set up node_exporter as a systemd service
+setup_node_exporter_service() {
+    sudo useradd --system --shell /bin/false node_exporter || handle_error "Failed to create node_exporter user"
+    
+    sudo mv /tmp/node_exporter-*/node_exporter /usr/local/bin/ || handle_error "Failed to move node_exporter binary"
+    
+    sudo chown node_exporter:node_exporter /usr/local/bin/node_exporter || handle_error "Failed to change ownership of node_exporter binary"
+
+    sudo tee /etc/systemd/system/node_exporter.service > /dev/null <<"EOF"
+[Unit]
+Description=Node Exporter
+
+[Service]
+User=node_exporter
+Group=node_exporter
+EnvironmentFile=-/etc/sysconfig/node_exporter
+ExecStart=/usr/local/bin/node_exporter $OPTIONS
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload || handle_error "Failed to reload systemd daemon"
+    sudo systemctl start node_exporter || handle_error "Failed to start node_exporter service"
+    sudo systemctl status node_exporter || handle_error "Failed to get node_exporter service status"
+    sudo systemctl enable node_exporter || handle_error "Failed to enable node_exporter service"
 }
 
 # Main function to execute all steps
@@ -553,7 +570,7 @@ install_exporter() {
     set_download_url
     download_prometheus
     extract_prometheus
-    start_node_exporter
+    setup_node_exporter_service
 }
 
 # Function to configure system logging
