@@ -149,7 +149,7 @@ install_packages() {
 USERNAME=""
 SSH_KEY_FILE=""
 
-# Function to add a user and add it to the sudo group
+# Function to add a user, set a password, and add the user to the sudo group
 add_user() {
     display_banner "ADD USER" "33"
 
@@ -159,6 +159,18 @@ add_user() {
         echo -e "\e[33mUser '$USERNAME' already exists\e[0m"
     else
         useradd -m -s /bin/bash "$USERNAME" && echo -e "\e[32mUser '$USERNAME' created successfully\e[0m" || handle_error "Failed to create user"
+        
+        # Prompt for password
+        read -s -p "$(tput setaf 3)Enter password for user '$USERNAME': $(tput sgr0)" PASSWORD
+        echo
+        read -s -p "$(tput setaf 3)Confirm password for user '$USERNAME': $(tput sgr0)" PASSWORD_CONFIRM
+        echo
+
+        if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then
+            handle_error "Passwords do not match"
+        fi
+
+        echo "$USERNAME:$PASSWORD" | chpasswd && echo -e "\e[32mPassword set successfully for user '$USERNAME'\e[0m" || handle_error "Failed to set password for user"
     fi
 
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
@@ -169,7 +181,6 @@ add_user() {
         handle_error "Unsupported Linux distribution"
     fi
 }
-
 
 # Function to set custom hostname
 set_custom_hostname() {
