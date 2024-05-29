@@ -138,9 +138,9 @@ install_packages() {
     display_banner "INSTALL PACKAGES" "34"
 
     if [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "ubuntu" ]; then
-        apt install -y git tmux tor htop ufw fail2ban logrotate rsyslog && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
+        apt install -y tmux tor htop ufw fail2ban logrotate rsyslog certbot nginx && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
     elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "rhel" ]; then
-        yum install -y git tmux tor htop firewalld epel-release fail2ban logrotate rsyslog && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
+        yum install -y tmux tor htop firewalld epel-release fail2ban logrotate rsyslog certbot nginx && echo -e "\e[32mPackages installed successfully.\e[0m" || handle_error "Failed to install packages"
     else
         handle_error "Unsupported Linux distribution"
     fi
