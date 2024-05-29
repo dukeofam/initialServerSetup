@@ -296,6 +296,15 @@ fi
 # Function to export SSH keys to GitHub private repository
 export_keys_to_github() {
     display_banner "EXPORT KEYS TO GITHUB" "29"
+
+    read -p "$(tput setaf 3)Do you want to export SSH keys to GitHub? (yes/no) [no]: $(tput sgr0)" export_choice
+    export_choice=${export_choice:-no}
+
+    if [[ "$export_choice" != "yes" ]]; then
+        echo "$(tput setaf 2)Skipping SSH key export to GitHub.$(tput sgr0)"
+        return
+    fi
+
     read -p "$(tput setaf 3)Enter your private GitHub repository URL: $(tput sgr0)" GITHUB_REPO_URL
     read -p "$(tput setaf 3)Enter your GitHub API key: $(tput sgr0)" -s GITHUB_API_KEY
     echo
@@ -446,119 +455,49 @@ latest_version=""
 download_url=""
 
 # Function to fetch the latest Prometheus release version from GitHub
-get_latest_prometheus_version() {
-    display_banner "PROMETHEUS CONFIGURATION" "31"
+get_latest_exporter_version() {
+    display_banner "PROMETHEUS NODE EXPORTER CONFIGURATION" "31"
 
-    latest_version=$(curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    latest_version=$(curl -s https://api.github.com/repos/prometheus/node_exporter/releases/latest | jq -r '.tag_name')
     # Remove the leading "v" if it exists
     latest_version=${latest_version#v}
+
+    if [ -z "$latest_version" ]; then
+        handle_error "Failed to fetch the latest version of node_exporter"
+    else
+        echo "Latest node exporter version: $latest_version"
+    fi
 }
 
-# Function to download Prometheus
+# Function to download Prometheus node exporter
 download_prometheus() {
-    download_url="https://github.com/prometheus/prometheus/releases/download/v$latest_version/prometheus-$latest_version.linux-amd64.tar.gz"
-    echo "Downloading Prometheus version $latest_version from $download_url"
-    wget "$download_url" -P /tmp/
+    download_url="https://github.com/prometheus/node_exporter/releases/download/v$latest_version/node_exporter-$latest_version.linux-amd64.tar.gz"
+    echo "Downloading node exporter version $latest_version from $download_url"
+    wget "$download_url" -P /tmp/ || handle_error "Failed to download node_exporter"
 }
 
-# Function to extract Prometheus
+# Function to extract Prometheus node exporter
 extract_prometheus() {
-    # Extract the Archive
-   tar -xzf /tmp/prometheus-$latest_version.linux-amd64.tar.gz -C /tmp/ || handle_error "Failed to extract Prometheus archive"
-
+    tar -xzf /tmp/node_exporter-$latest_version.linux-amd64.tar.gz -C /tmp/ || handle_error "Failed to extract node_exporter archive"
 }
 
-# Function to configure Prometheus
-configure_prometheus() {
-    # Move Prometheus Files
-    if [ ! -f "/usr/local/bin/prometheus" ]; then
-        sudo mv "/tmp/prometheus-$latest_version.linux-amd64/prometheus" /usr/local/bin/ || handle_error "Failed to move Prometheus executable"
+# Function to start node exporter
+start_node_exporter() {
+    cd /tmp/node_exporter-$latest_version.linux-amd64 || handle_error "Failed to change directory to extracted node_exporter"
+    ./node_exporter &
+    if [ $? -eq 0 ]; then
+        echo "node_exporter started successfully"
     else
-        echo "Prometheus executable already exists. Skipping move."
+        handle_error "Failed to start node_exporter"
     fi
-
-    if [ ! -f "/usr/local/bin/promtool" ]; then
-        sudo mv "/tmp/prometheus-$latest_version.linux-amd64/promtool" /usr/local/bin/ || handle_error "Failed to move Prometheus tool"
-    else
-        echo "Prometheus tool already exists. Skipping move."
-    fi
-
-    # Create a Prometheus Configuration File
-    if [ ! -d "/etc/prometheus" ]; then
-        sudo mkdir /etc/prometheus || handle_error "Failed to create Prometheus configuration directory"
-    else
-        echo "Prometheus configuration directory already exists. Skipping creation."
-    fi
-
-    if [ ! -f "/etc/prometheus/prometheus.yml" ]; then
-        sudo touch /etc/prometheus/prometheus.yml || handle_error "Failed to create Prometheus configuration file"
-    else
-        echo "Prometheus configuration file already exists. Skipping creation."
-    fi
-
-    # Add Configuration to the File
-    cat << EOF | sudo tee /etc/prometheus/prometheus.yml
-global:
-  scrape_interval:     15s
-  evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: 'node'
-    static_configs:
-      - targets: ['localhost:9100']
-EOF
 }
 
-# Function to add technical user Prometheus
-add_prometheus_user() {
-    useradd -m -s /bin/bash prometheus && echo "$(tput setaf 2)Prometheus user added successfully.$(tput sgr0)"
-}
-
-# Function to start Prometheus
-start_prometheus() {
-    # Create a Prometheus Systemd Service File
-    cat << EOF | sudo tee /etc/systemd/system/prometheus.service
-[Unit]
-Description=Prometheus Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.console.templates=/etc/prometheus/consoles --web.console.libraries=/etc/prometheus/console_libraries
-User=prometheus
-Group=prometheus
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create Necessary Directories
-    if [ ! -d "/var/lib/prometheus" ]; then
-        sudo mkdir /var/lib/prometheus && echo "$(tput setaf 2)Prometheus data directory created successfully.$(tput sgr0)" || handle_error "Failed to create Prometheus data directory"
-    else
-        echo "Prometheus data directory already exists. Skipping creation."
-    fi
-
-    # Change Ownership of Prometheus Directory
-    sudo chown -R prometheus: /etc/prometheus /var/lib/prometheus && echo "$(tput setaf 2)Changed ownership of Prometheus directories successfully.$(tput sgr0)" || handle_error "Failed to change ownership of Prometheus directories"
-
-    # Start and Enable Prometheus Service
-    sudo systemctl daemon-reload && echo "$(tput setaf 2)Reloaded systemd daemon.$(tput sgr0)" || handle_error "Failed to reload systemd daemon"
-    sudo systemctl start prometheus && echo "$(tput setaf 2)Prometheus service started successfully.$(tput sgr0)" || handle_error "Failed to start Prometheus service"
-    sudo systemctl enable prometheus && echo "$(tput setaf 2)Prometheus service enabled successfully.$(tput sgr0)" || handle_error "Failed to enable Prometheus service"
-
-echo "$(tput setaf 2)Prometheus installed successfully.$(tput sgr0)"
-}
-
-# Function to install Prometheus
-install_prometheus() {
-    get_latest_prometheus_version
+# Main function to execute all steps
+install_exporter() {
+    get_latest_exporter_version
     download_prometheus
     extract_prometheus
-    add_prometheus_user
-    configure_prometheus
-    start_prometheus
+    start_node_exporter
 }
 
 # Function to configure system logging
@@ -648,7 +587,7 @@ add_user
 set_custom_hostname
 configure_ssh
 export_keys_to_github
-install_prometheus
+install_exporter
 configure_firewall
 configure_fail2ban
 configure_logging
