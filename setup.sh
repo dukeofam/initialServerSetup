@@ -568,10 +568,20 @@ configure_logging() {
     systemctl start rsyslog && echo "$(tput setaf 2)rsyslog started successfully.$(tput sgr0)"
 }
 
-# Function to configure fail2ban
+# Function to configure fail2ban for a specific country chosen by the user
 configure_fail2ban() {
     display_banner "CONFIGURING FAIL2BAN" "33"
-    # Configure fail2ban to only allow CZ IPs
+
+    # Prompt the user to enter the country code (in blue)
+    read -p "$(tput setaf 4)Enter the country code (e.g., 'cz' for Czech Republic): $(tput sgr0)" country_code
+
+    # If no country code is provided, default to allowing all countries
+    if [ -z "$country_code" ]; then
+        echo "No country code provided. Allowing all countries."
+        country_code="all"
+    fi
+
+    # Configure fail2ban to only allow IPs from the specified country or all countries
     cat << EOF | sudo tee /etc/fail2ban/jail.local
 [DEFAULT]
 ignoreip = 127.0.0.1/8
@@ -586,8 +596,8 @@ banaction = iptables-multiport
 banipregex = ^<HOST>$
 EOF
 
-    # Create a new jail file to specify CZ IPs
-    cat << EOF | sudo tee /etc/fail2ban/action.d/iptables-geoip.conf
+    # Create a new jail file to specify IPs from the chosen country or all countries
+    cat << EOF | sudo tee "/etc/fail2ban/action.d/iptables-geoip-$country_code.conf"
 [Definition]
 actionstart = <iptables> -N fail2ban-<name>
               <iptables> -A fail2ban-<name> -j RETURN
@@ -599,15 +609,15 @@ actionunban = <iptables> -D fail2ban-<name> -s <ip> -j DROP
 actionflush = <iptables> -F fail2ban-<name>
 EOF
 
-    # Download CZ IP ranges
-    curl -sSL https://www.ipdeny.com/ipblocks/data/countries/cz.zone -o /etc/fail2ban/cz.zone && echo "$(tput setaf 2)Downloaded CZ IP ranges successfully.$(tput sgr0)" || handle_error "Failed to download CZ IP ranges"
+    # Download IP ranges for the specified country or all countries
+    curl -sSL "https://www.ipdeny.com/ipblocks/data/countries/$country_code.zone" -o "/etc/fail2ban/$country_code.zone" && echo "$(tput setaf 2)Downloaded $country_code IP ranges successfully.$(tput sgr0)" || handle_error "Failed to download $country_code IP ranges"
 
-    # Create a new fail2ban jail to block IPs not from CZ
-    cat << EOF | sudo tee /etc/fail2ban/jail.d/cz.conf
-[cz]
+    # Create a new fail2ban jail to block IPs not from the specified country or all countries
+    cat << EOF | sudo tee "/etc/fail2ban/jail.d/$country_code.conf"
+[$country_code]
 enabled = true
 filter = <filter>
-action = iptables-geoip[name=czech, protocol=all]
+action = iptables-geoip[name=$country_code, protocol=all]
 logpath = /var/log/auth.log
 EOF
 
