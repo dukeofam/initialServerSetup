@@ -33,9 +33,9 @@ This script automates the setup process for a Linux (Debian/Ubuntu/CentOS) serve
 
   example config file:
 
-USERNAME="myuser"
-SSH_PORT=2222
-NEW_HOSTNAME="Linux"
+*USERNAME="myuser"
+*SSH_PORT=2222
+*NEW_HOSTNAME="Linux"
 etc.
 
 ## Contributors
