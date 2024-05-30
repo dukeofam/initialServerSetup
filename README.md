@@ -1,10 +1,10 @@
-# Bash Server Setup Script
+# Initial Server Setup Script
 
 This script automates the setup process for a Linux (Debian/Ubuntu/CentOS) server, including system updates, package installations, user management, firewall configuration, and more. If you find any bugs or have an idea to make it better, feel free to propose it/merge request. :)
 
 ## Prerequisites
 
-- This script is designed for Linux servers.
+- This script is designed for Linux (Debian/Ubuntu/CentOS) servers.
 - Root access is required to run this script.
 - Ensure internet connectivity to download necessary packages.
 
@@ -30,6 +30,13 @@ This script automates the setup process for a Linux (Debian/Ubuntu/CentOS) serve
 - **Fail2ban Configuration:** Configures Fail2ban for enhanced security.
 - **Logging Configuration:** Configures system logging.
 - **Swap Space Configuration:** Creates and configures swap space.
+
+  example config file:
+
+USERNAME="myuser"
+SSH_PORT=2222
+NEW_HOSTNAME="Linux"
+etc.
 
 ## Contributors
 
