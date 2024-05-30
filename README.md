@@ -31,12 +31,12 @@ This script automates the setup process for a Linux (Debian/Ubuntu/CentOS) serve
 - **Logging Configuration:** Configures system logging.
 - **Swap Space Configuration:** Creates and configures swap space.
 
-  example config file:
+## Example config file:
 
-*USERNAME="myuser"
-*SSH_PORT=2222
-*NEW_HOSTNAME="Linux"
-etc.
+-USERNAME="myuser"
+-SSH_PORT=2222
+-NEW_HOSTNAME="Linux"
+
 
 ## Contributors
 
