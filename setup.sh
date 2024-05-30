@@ -38,7 +38,7 @@ read_config() {
         # Read configuration settings from the file
         source "$CONFIG_FILE"
     else
-        echo -e "\e[31m\u2717\e[0m No config file found. Skipping configuration."
+        echo -e "\e[31m\u2717\e[0m No config file found. Skipping it."
     fi
 }
 
