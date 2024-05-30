@@ -249,26 +249,25 @@ configure_ssh() {
     esac
 
     SSH_KEY_FILE="/home/$USERNAME/.ssh/id_$SSH_ALGO"
-    echo -e "\e[32mSSH key generation completed successfully.\e[0m"
 
     # Check if the user wants to set a passphrase
-    local SSH_PASSPHRASE
-
+    local SSH_PASSPHRASE=""
     read -p $'\e[33mDo you want to set a passphrase for the SSH key? [y/n]: \e[0m' SET_PASSPHRASE
 
     if [[ $SET_PASSPHRASE =~ ^[Yy]$ ]]; then
-    read -s -p $'\e[33mEnter passphrase for SSH key: \e[0m' SSH_PASSPHRASE
-    echo
-    if [ -z "$SSH_PASSPHRASE" ]; then
-        handle_error "Passphrase cannot be empty"
+        read -s -p $'\e[33mEnter passphrase for SSH key: \e[0m' SSH_PASSPHRASE
+        echo
+        if [ -z "$SSH_PASSPHRASE" ]; then
+            handle_error "Passphrase cannot be empty"
+        fi
+        read -s -p $'\e[33mConfirm passphrase: \e[0m' CONFIRM_PASSPHRASE
+        echo
+        if [ "$SSH_PASSPHRASE" != "$CONFIRM_PASSPHRASE" ]; then
+            handle_error "Passphrases do not match. Please try again."
+        else
+            echo -e "\e[32mSSH passphrase set successfully.\e[0m"
+        fi
     fi
-    read -s -p $'\e[33mConfirm passphrase: \e[0m' CONFIRM_PASSPHRASE
-    echo
-    if [ "$SSH_PASSPHRASE" != "$CONFIRM_PASSPHRASE" ]; then
-        handle_error "Passphrases do not match. Please try again."
-    else echo -e "\e[32mSSH passphrase set successfully.\e[0m"
-    fi
-fi
 
     # Generate SSH keys for the user
     if [ -n "$SSH_KEY_BITS" ]; then
@@ -277,20 +276,20 @@ fi
         sudo -u "$USERNAME" ssh-keygen -t "$SSH_ALGO" -f "$SSH_KEY_FILE" -N "$SSH_PASSPHRASE" || handle_error "SSH key generation failed"
     fi
 
-# Add the public key to authorized_keys
-cat "$SSH_KEY_FILE.pub" >> "/home/$USERNAME/.ssh/authorized_keys"
+    # Add the public key to authorized_keys
+    cat "$SSH_KEY_FILE.pub" >> "/home/$USERNAME/.ssh/authorized_keys"
 
-# Adjust permissions
-chown -R "$USERNAME":"$USERNAME" "/home/$USERNAME/.ssh"
-chmod 700 "/home/$USERNAME/.ssh"
-chmod 600 "/home/$USERNAME/.ssh/authorized_keys"
+    # Adjust permissions
+    chown -R "$USERNAME":"$USERNAME" "/home/$USERNAME/.ssh"
+    chmod 700 "/home/$USERNAME/.ssh"
+    chmod 600 "/home/$USERNAME/.ssh/authorized_keys"
 
-# Restart SSH service for changes to take effect
-if systemctl restart sshd; then
-    echo -e "\e[32mThe keys have been generated and moved to the 'authorized_keys' folder. The SSH server has been restarted.\e[0m"
-else
-    handle_error "Failed to restart SSH service"
-fi
+    # Restart SSH service for changes to take effect
+    if systemctl restart sshd; then
+        echo -e "\e[32mThe keys have been generated and moved to the 'authorized_keys' folder. The SSH server has been restarted.\e[0m"
+    else
+        handle_error "Failed to restart SSH service"
+    fi
 }
 
 # Function to export SSH keys to GitHub private repository
@@ -329,13 +328,12 @@ export_keys_to_github() {
     echo "$(tput setaf 2)Cloned GitHub repository successfully.$(tput sgr0)"
 
     # Copy SSH keys to the repository directory
-    cp "$SSH_KEY_FILE" "$LOCAL_REPO_DIR/" || handle_error "$(tput setaf 1)Failed to copy SSH private key$(tput sgr0)"
     cp "$SSH_KEY_FILE.pub" "$LOCAL_REPO_DIR/" || handle_error "$(tput setaf 1)Failed to copy SSH public key$(tput sgr0)"
     echo "$(tput setaf 2)Copied SSH keys to the repository directory.$(tput sgr0)"
 
     # Commit and push the changes
     cd "$LOCAL_REPO_DIR" || handle_error "$(tput setaf 1)Failed to change directory to $LOCAL_REPO_DIR$(tput sgr0)"
-    git add id_$SSH_ALGO id_$SSH_ALGO.pub
+    git add id_$SSH_ALGO.pub
     git commit -m "Add new SSH keys for $USERNAME" || handle_error "$(tput setaf 1)Failed to commit changes$(tput sgr0)"
     git push origin main || handle_error "$(tput setaf 1)Failed to push changes to GitHub$(tput sgr0)"
     echo "$(tput setaf 2)Committed and pushed the changes to GitHub successfully.$(tput sgr0)"
@@ -343,6 +341,61 @@ export_keys_to_github() {
     # Clean up
     rm -rf "$LOCAL_REPO_DIR" || handle_error "$(tput setaf 1)Failed to remove temporary directory$(tput sgr0)"
     echo "$(tput setaf 2)Cleaned up temporary directory.$(tput sgr0)"
+}
+
+# Function to send SSH keys via Telegram
+send_keys_via_telegram() {
+    display_banner "SEND KEYS VIA TELEGRAM" "29"
+
+    read -p "$(tput setaf 3)Do you want to send SSH keys via Telegram? (yes/no) [no]: $(tput sgr0)" send_choice
+    send_choice=${send_choice:-no}
+
+    if [[ "$send_choice" != "yes" ]]; then
+        echo "$(tput setaf 2)Skipping SSH key export via Telegram.$(tput sgr0)"
+        return
+    fi
+
+    read -p "$(tput setaf 3)Enter your Telegram Bot API Token: $(tput sgr0)" TELEGRAM_BOT_TOKEN
+    read -p "$(tput setaf 3)Enter your Telegram Chat ID: $(tput sgr0)" TELEGRAM_CHAT_ID
+
+    if [ ! -f "$SSH_KEY_FILE.pub" ]; then
+        echo "$(tput setaf 1)SSH keys for user '$USERNAME' not found.$(tput sgr0)"
+        return 1
+    fi
+
+    # Send the public key via Telegram
+    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="SSH Public Key for $USERNAME: $(cat $SSH_KEY_FILE.pub)" >/dev/null
+
+    if [ $? -eq 0 ]; then
+        echo "$(tput setaf 2)SSH public key sent via Telegram successfully.$(tput sgr0)"
+    else
+        handle_error "$(tput setaf 1)Failed to send SSH public key via Telegram.$(tput sgr0)"
+    fi
+}
+
+# Function to copy SSH keys to a remote server
+copy_keys_to_remote_server() {
+    display_banner "COPY KEYS TO REMOTE SERVER" "29"
+
+    read -p "$(tput setaf 3)Do you want to copy SSH keys to a remote server? (yes/no) [no]: $(tput sgr0)" copy_choice
+    copy_choice=${copy_choice:-no}
+
+    if [[ "$copy_choice" != "yes" ]]; then
+        echo "$(tput setaf 2)Skipping SSH key export to remote server.$(tput sgr0)"
+        return
+    fi
+
+    read -p "$(tput setaf 3)Enter the remote server address (user@host): $(tput sgr0)" REMOTE_SERVER
+    read -p "$(tput setaf 3)Enter the destination path on the remote server: $(tput sgr0)" REMOTE_PATH
+
+    if [ ! -f "$SSH_KEY_FILE.pub" ]; then
+        echo "$(tput setaf 1)SSH keys for user '$USERNAME' not found.$(tput sgr0)"
+        return 1
+    fi
+
+    # Copy the public key to the remote server
+    scp "$SSH_KEY_FILE.pub" "$REMOTE_SERVER:$REMOTE_PATH" || handle_error "$(tput setaf 1)Failed to copy SSH public key to remote server$(tput sgr0)"
+    echo "$(tput setaf 2)SSH public key copied to remote server successfully.$(tput sgr0)"
 }
 
 # Helper function to validate and add a port rule
