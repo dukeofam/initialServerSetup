@@ -11,8 +11,8 @@ This script automates the setup process for a Linux (Debian/Ubuntu/CentOS) serve
 ## Usage
 
 1. Clone the repository or download the script.
-2. Make the script executable: `chmod +x server_setup.sh`
-3. Run the script as root: `sudo ./server_setup.sh`
+2. Make the script executable: `chmod +x setup.sh`
+3. Run the script as root: `sudo ./setup.sh`
 4. Follow the prompts to configure your server.
 
 ## Features
